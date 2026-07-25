@@ -28,9 +28,14 @@ import type { ClaudeModel } from "../adapter/openai-to-cli.js";
 
 export interface SubprocessOptions {
   model: ClaudeModel;
-  sessionId?: string;
   cwd?: string;
   timeout?: number;
+  /**
+   * Keep stdin open after the first turn so the process can be reused for
+   * later turns via continueTurn() (see pool.ts). Defaults to false: the
+   * process is one-shot and exits after replying.
+   */
+  keepAlive?: boolean;
 }
 
 export interface SubprocessEvents {
@@ -93,13 +98,24 @@ export class ClaudeSubprocess extends EventEmitter {
   private buffer: string = "";
   private timeoutId: NodeJS.Timeout | null = null;
   private isKilled: boolean = false;
+  private defaultTimeout: number = DEFAULT_TIMEOUT;
 
   /**
-   * Start the Claude CLI subprocess with the given prompt
+   * Start the Claude CLI subprocess with the given prompt.
+   *
+   * By default the process is one-shot: it handles exactly one turn and exits,
+   * so unrelated requests never share conversation state. Pass `keepAlive: true`
+   * to leave stdin open instead — the process then stays resident and further
+   * turns can be sent with continueTurn(). Callers opting into keepAlive are
+   * responsible for scoping reuse to a single caller/session (see pool.ts);
+   * mixing turns from different callers on one process would leak context
+   * between them.
    */
   async start(prompt: string, options: SubprocessOptions): Promise<void> {
-    const args = this.buildArgs(options);
     const timeout = options.timeout || DEFAULT_TIMEOUT;
+    this.defaultTimeout = timeout;
+
+    const args = this.buildArgs(options);
 
     return new Promise((resolve, reject) => {
       try {
@@ -113,13 +129,7 @@ export class ClaudeSubprocess extends EventEmitter {
         });
 
         // Set timeout
-        this.timeoutId = setTimeout(() => {
-          if (!this.isKilled) {
-            this.isKilled = true;
-            this.process?.kill("SIGTERM");
-            this.emit("error", new Error(`Request timed out after ${timeout}ms`));
-          }
-        }, timeout);
+        this.resetTimeout(timeout);
 
         // Handle spawn errors (e.g., claude not found)
         this.process.on("error", (err) => {
@@ -136,8 +146,8 @@ export class ClaudeSubprocess extends EventEmitter {
         });
 
         // Pass prompt via stdin to avoid E2BIG on large inputs
-        this.process.stdin?.write(prompt);
-        this.process.stdin?.end();
+        this.writePrompt(prompt, { closeStdin: !options.keepAlive });
+        resolve();
 
         if (process.env.DEBUG_SUBPROCESS) {
           console.error(`[Subprocess] Process spawned with PID: ${this.process.pid}`);
@@ -177,9 +187,6 @@ export class ClaudeSubprocess extends EventEmitter {
           }
           this.emit("close", code);
         });
-
-        // Resolve immediately since we're streaming
-        resolve();
       } catch (err) {
         this.clearTimeout();
         reject(err);
@@ -194,23 +201,75 @@ export class ClaudeSubprocess extends EventEmitter {
     const args = [
       "--print", // Non-interactive mode
       "--dangerously-skip-permissions", // Skip permission prompts
+      "--input-format",
+      "stream-json", // Accept JSON messages on stdin
       "--output-format",
       "stream-json", // JSON streaming output
       "--verbose", // Required for stream-json
       "--include-partial-messages", // Enable streaming chunks
+      "--no-session-persistence", // Don't write session state to disk; keepAlive reuse is in-memory only
       "--model",
       options.model, // Model alias (opus/sonnet/haiku)
-      "--no-session-persistence", // Don't save sessions
       "--append-system-prompt",
       OPENCLAW_TOOL_MAPPING_PROMPT,
       // Prompt is passed via stdin (avoids E2BIG on large inputs)
     ];
 
-    if (options.sessionId) {
-      args.push("--session-id", options.sessionId);
-    }
+    // Note: our own pool key (e.g. the OpenAI `user` field) is deliberately
+    // NOT passed as CLI --session-id — that flag requires a UUID and is for
+    // the CLI's own on-disk session resume, which we don't use
+    // (--no-session-persistence). Our pool keeps the live process reference
+    // in memory instead, so any string works as a key.
 
     return args;
+  }
+
+  /**
+   * Write a prompt to stdin as a stream-json user message envelope. Closes
+   * stdin afterward unless `closeStdin` is false, in which case the CLI knows
+   * more turns may follow and stays alive waiting for them.
+   */
+  private writePrompt(prompt: string, { closeStdin }: { closeStdin: boolean }): void {
+    const envelope = {
+      type: "user",
+      message: { role: "user", content: [{ type: "text", text: prompt }] },
+    };
+    this.process?.stdin?.write(JSON.stringify(envelope) + "\n");
+    if (closeStdin) {
+      this.process?.stdin?.end();
+    }
+  }
+
+  /**
+   * Send another turn to an already-running keepAlive process. Only valid
+   * after start({ keepAlive: true }); throws if the process isn't alive.
+   * Callers must not call this concurrently with an in-flight turn on the
+   * same instance — the CLI processes stdin messages one at a time, and
+   * responses aren't tagged, so overlapping turns would be indistinguishable
+   * on the "assistant"/"result" events.
+   */
+  continueTurn(prompt: string, timeout?: number): void {
+    if (!this.isRunning()) {
+      throw new Error("Cannot continue turn: subprocess is not running");
+    }
+    this.resetTimeout(timeout || this.defaultTimeout);
+    this.writePrompt(prompt, { closeStdin: false });
+  }
+
+  /**
+   * (Re)arm the inactivity timeout. Called on spawn and on every subsequent
+   * turn so a long-lived keepAlive process isn't killed mid-session — only
+   * killed if a single turn hangs longer than the timeout.
+   */
+  private resetTimeout(timeout: number): void {
+    this.clearTimeout();
+    this.timeoutId = setTimeout(() => {
+      if (!this.isKilled) {
+        this.isKilled = true;
+        this.process?.kill("SIGTERM");
+        this.emit("error", new Error(`Request timed out after ${timeout}ms`));
+      }
+    }, timeout);
   }
 
   /**
@@ -251,6 +310,9 @@ export class ClaudeSubprocess extends EventEmitter {
         } else if (isAssistantMessage(message)) {
           this.emit("assistant", message);
         } else if (isResultMessage(message)) {
+          // Turn finished — clear the inactivity timer so an idle keepAlive
+          // process waiting for its next turn isn't killed by it.
+          this.clearTimeout();
           this.emit("result", message);
         }
       } catch {

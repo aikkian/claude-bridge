@@ -142,3 +142,20 @@ export function openaiToCli(request: OpenAIChatRequest): CliInput {
     sessionId: request.user, // Use OpenAI's user field for session mapping
   };
 }
+
+/**
+ * Extract just the newest user message, ignoring the rest of the history.
+ *
+ * Used when continuing a pooled, keepAlive session: the CLI process already
+ * has the prior turns in its own context, so replaying the full messages
+ * array (as messagesToPrompt does) would duplicate that history in-process.
+ * Falls back to the full prompt if no user message is found.
+ */
+export function lastUserPrompt(messages: OpenAIChatRequest["messages"]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "user") {
+      return extractText(messages[i].content);
+    }
+  }
+  return messagesToPrompt(messages);
+}

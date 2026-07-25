@@ -7,7 +7,8 @@
 import type { Request, Response } from "express";
 import { v4 as uuidv4 } from "uuid";
 import { ClaudeSubprocess } from "../subprocess/manager.js";
-import { openaiToCli } from "../adapter/openai-to-cli.js";
+import { getSession, registerSession } from "../subprocess/pool.js";
+import { openaiToCli, lastUserPrompt } from "../adapter/openai-to-cli.js";
 import {
   cliResultToOpenai,
   createDoneChunk,
@@ -43,12 +44,34 @@ export async function handleChatCompletions(
 
     // Convert to CLI input format
     const cliInput = openaiToCli(body);
-    const subprocess = new ClaudeSubprocess();
+
+    // Requests carrying a sessionId (OpenAI `user` field) reuse a resident,
+    // keepAlive subprocess for that session so repeat callers skip the cold
+    // spawn. Sessions are never shared across keys. Requests without a
+    // sessionId fall back to a fresh, one-shot, fully isolated subprocess.
+    let subprocess: ClaudeSubprocess;
+    let isContinuation = false;
+    if (cliInput.sessionId) {
+      const existing = getSession(cliInput.sessionId);
+      if (existing) {
+        subprocess = existing;
+        isContinuation = true;
+        // The pooled process already holds prior turns in its own context —
+        // replay only the newest user message, not the full history, or
+        // context would be duplicated turn over turn.
+        cliInput.prompt = lastUserPrompt(body.messages);
+      } else {
+        subprocess = new ClaudeSubprocess();
+        registerSession(cliInput.sessionId, subprocess);
+      }
+    } else {
+      subprocess = new ClaudeSubprocess();
+    }
 
     if (stream) {
-      await handleStreamingResponse(req, res, subprocess, cliInput, requestId);
+      await handleStreamingResponse(req, res, subprocess, cliInput, requestId, isContinuation);
     } else {
-      await handleNonStreamingResponse(res, subprocess, cliInput, requestId);
+      await handleNonStreamingResponse(res, subprocess, cliInput, requestId, isContinuation);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
@@ -86,7 +109,8 @@ async function handleStreamingResponse(
   res: Response,
   subprocess: ClaudeSubprocess,
   cliInput: ReturnType<typeof openaiToCli>,
-  requestId: string
+  requestId: string,
+  isContinuation: boolean
 ): Promise<void> {
   // Set SSE headers
   res.setHeader("Content-Type", "text/event-stream");
@@ -109,18 +133,38 @@ async function handleStreamingResponse(
     let toolCallIndex = 0;
     let inToolBlock = false;
 
+    // subprocess is a one-shot instance for this request only, but remove
+    // listeners on every exit path anyway so a lingering reference can't fire late.
+    const cleanup = () => {
+      res.removeListener("close", onClientClose);
+      subprocess.removeListener("text_block_start", onTextBlockStart);
+      subprocess.removeListener("content_delta", onContentDelta);
+      subprocess.removeListener("assistant", onAssistant);
+      subprocess.removeListener("result", onResult);
+      subprocess.removeListener("error", onError);
+      subprocess.removeListener("close", onClose);
+    };
+    const finish = () => {
+      cleanup();
+      resolve();
+    };
+
     // Handle actual client disconnect (response stream closed)
-    res.on("close", () => {
-      if (!isComplete) {
-        // Client disconnected before response completed - kill subprocess
+    const onClientClose = () => {
+      if (!isComplete && !isContinuation) {
+        // Client disconnected before response completed - kill the one-shot
+        // subprocess. Pooled/continuation subprocesses are left alive: they
+        // belong to the session, not this single request, and the in-flight
+        // turn may still be wanted by the next request on this session.
         subprocess.kill();
       }
-      resolve();
-    });
+      finish();
+    };
+    res.on("close", onClientClose);
 
     // When a new text content block starts after we've already emitted text,
     // insert a separator so text from different blocks doesn't run together
-    subprocess.on("text_block_start", () => {
+    const onTextBlockStart = () => {
       if (hasEmittedText && !res.writableEnded) {
         const sepChunk = {
           id: `chatcmpl-${requestId}`,
@@ -137,10 +181,11 @@ async function handleStreamingResponse(
         };
         res.write(`data: ${JSON.stringify(sepChunk)}\n\n`);
       }
-    });
+    };
+    subprocess.on("text_block_start", onTextBlockStart);
 
     // Handle streaming content deltas
-    subprocess.on("content_delta", (event: ClaudeCliStreamEvent) => {
+    const onContentDelta = (event: ClaudeCliStreamEvent) => {
       const delta = event.event.delta;
       const text = (delta?.type === "text_delta" && delta.text) || "";
       if (text && !res.writableEnded) {
@@ -162,7 +207,8 @@ async function handleStreamingResponse(
         isFirst = false;
         hasEmittedText = true;
       }
-    });
+    };
+    subprocess.on("content_delta", onContentDelta);
 
     // DISABLED: Tool call forwarding causes an agentic loop — OpenClaw interprets
     // Claude Code's internal tool_use (Read, Bash, etc.) as calls it needs to
@@ -236,11 +282,12 @@ async function handleStreamingResponse(
     // });
 
     // Handle final assistant message (for model name)
-    subprocess.on("assistant", (message: ClaudeCliAssistant) => {
+    const onAssistant = (message: ClaudeCliAssistant) => {
       lastModel = message.message.model;
-    });
+    };
+    subprocess.on("assistant", onAssistant);
 
-    subprocess.on("result", (result: ClaudeCliResult) => {
+    const onResult = (result: ClaudeCliResult) => {
       isComplete = true;
       if (!res.writableEnded) {
         // Send final done chunk with finish_reason and usage data
@@ -257,10 +304,11 @@ async function handleStreamingResponse(
         res.write("data: [DONE]\n\n");
         res.end();
       }
-      resolve();
-    });
+      finish();
+    };
+    subprocess.on("result", onResult);
 
-    subprocess.on("error", (error: Error) => {
+    const onError = (error: Error) => {
       console.error("[Streaming] Error:", error.message);
       if (!res.writableEnded) {
         res.write(
@@ -270,10 +318,11 @@ async function handleStreamingResponse(
         );
         res.end();
       }
-      resolve();
-    });
+      finish();
+    };
+    subprocess.on("error", onError);
 
-    subprocess.on("close", (code: number | null) => {
+    const onClose = (code: number | null) => {
       // Subprocess exited - ensure response is closed
       if (!res.writableEnded) {
         if (code !== 0 && !isComplete) {
@@ -285,17 +334,29 @@ async function handleStreamingResponse(
         res.write("data: [DONE]\n\n");
         res.end();
       }
-      resolve();
-    });
+      finish();
+    };
+    subprocess.on("close", onClose);
 
-    // Start the subprocess
-    subprocess.start(cliInput.prompt, {
-      model: cliInput.model,
-      sessionId: cliInput.sessionId,
-    }).catch((err) => {
-      console.error("[Streaming] Subprocess start error:", err);
-      reject(err);
-    });
+    // Start the subprocess, or send the next turn if reusing a pooled one
+    if (isContinuation) {
+      try {
+        subprocess.continueTurn(cliInput.prompt);
+      } catch (err) {
+        console.error("[Streaming] continueTurn error:", err);
+        cleanup();
+        reject(err as Error);
+      }
+    } else {
+      subprocess.start(cliInput.prompt, {
+        model: cliInput.model,
+        keepAlive: !!cliInput.sessionId,
+      }).catch((err) => {
+        console.error("[Streaming] Subprocess start error:", err);
+        cleanup();
+        reject(err);
+      });
+    }
   });
 }
 
@@ -306,10 +367,10 @@ async function handleNonStreamingResponse(
   res: Response,
   subprocess: ClaudeSubprocess,
   cliInput: ReturnType<typeof openaiToCli>,
-  requestId: string
+  requestId: string,
+  isContinuation: boolean
 ): Promise<void> {
   return new Promise((resolve) => {
-    let finalResult: ClaudeCliResult | null = null;
     // DISABLED: see tool call forwarding comment in handleStreamingResponse
     // const accumulatedToolCalls: OpenAIToolCall[] = [];
     //
@@ -328,26 +389,43 @@ async function handleNonStreamingResponse(
     //   }
     // });
 
-    subprocess.on("result", (result: ClaudeCliResult) => {
-      finalResult = result;
-    });
-
-    subprocess.on("error", (error: Error) => {
-      console.error("[NonStreaming] Error:", error.message);
-      res.status(500).json({
-        error: {
-          message: error.message,
-          type: "server_error",
-          code: null,
-        },
-      });
+    // subprocess is a one-shot instance for this request only, but remove
+    // listeners on every exit path anyway so a lingering reference can't fire late.
+    const cleanup = () => {
+      subprocess.removeListener("result", onResult);
+      subprocess.removeListener("error", onError);
+      subprocess.removeListener("close", onClose);
+    };
+    const finish = () => {
+      cleanup();
       resolve();
-    });
+    };
 
-    subprocess.on("close", (code: number | null) => {
-      if (finalResult) {
-        res.json(cliResultToOpenai(finalResult, requestId));
-      } else if (!res.headersSent) {
+    const onResult = (result: ClaudeCliResult) => {
+      res.json(cliResultToOpenai(result, requestId));
+      finish();
+    };
+    subprocess.on("result", onResult);
+
+    const onError = (error: Error) => {
+      console.error("[NonStreaming] Error:", error.message);
+      if (!res.headersSent) {
+        res.status(500).json({
+          error: {
+            message: error.message,
+            type: "server_error",
+            code: null,
+          },
+        });
+      }
+      finish();
+    };
+    subprocess.on("error", onError);
+
+    const onClose = (code: number | null) => {
+      // Fallback for when the process exits without sending a result
+      // (e.g. crashed or was killed) instead of exiting cleanly after the reply.
+      if (!res.headersSent) {
         res.status(500).json({
           error: {
             message: `Claude CLI exited with code ${code} without response`,
@@ -356,25 +434,41 @@ async function handleNonStreamingResponse(
           },
         });
       }
-      resolve();
-    });
+      finish();
+    };
+    subprocess.on("close", onClose);
 
-    // Start the subprocess
-    subprocess
-      .start(cliInput.prompt, {
-        model: cliInput.model,
-        sessionId: cliInput.sessionId,
-      })
-      .catch((error) => {
+    // Start the subprocess, or send the next turn if reusing a pooled one
+    if (isContinuation) {
+      try {
+        subprocess.continueTurn(cliInput.prompt);
+      } catch (error) {
         res.status(500).json({
           error: {
-            message: error.message,
+            message: error instanceof Error ? error.message : "Unknown error",
             type: "server_error",
             code: null,
           },
         });
-        resolve();
-      });
+        finish();
+      }
+    } else {
+      subprocess
+        .start(cliInput.prompt, {
+          model: cliInput.model,
+          keepAlive: !!cliInput.sessionId,
+        })
+        .catch((error) => {
+          res.status(500).json({
+            error: {
+              message: error.message,
+              type: "server_error",
+              code: null,
+            },
+          });
+          finish();
+        });
+    }
   });
 }
 
