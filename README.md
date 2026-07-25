@@ -1,6 +1,4 @@
-# Claude Max API Proxy
-
-> Actively maintained fork of [atalovesyou/claude-max-api-proxy](https://github.com/atalovesyou/claude-max-api-proxy) with OpenClaw integration, improved streaming, and expanded model support.
+# Claude Bridge For Agent Proxy
 
 **Use your existing Claude subscription (Pro, Max, Team, or Enterprise) with any OpenAI-compatible client — no separate API costs!**
 
@@ -258,6 +256,5 @@ MIT
 
 ## Acknowledgments
 
-- Originally created by [atalovesyou](https://github.com/atalovesyou/claude-max-api-proxy)
 - Built for use with [OpenClaw](https://openclaw.com)
 - Powered by [Claude Code CLI](https://github.com/anthropics/claude-code)
