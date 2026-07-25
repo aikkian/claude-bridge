@@ -2,7 +2,7 @@
 
 **Use your existing Claude subscription (Pro, Max, Team, or Enterprise) with any OpenAI-compatible client — no separate API costs!**
 
-This proxy wraps the Claude Code CLI as a subprocess and exposes an OpenAI-compatible HTTP API, allowing tools like OpenClaw, Continue.dev, or any OpenAI-compatible client to use your Claude subscription instead of paying per-API-call.
+This proxy wraps the Claude Code CLI as a subprocess and exposes an OpenAI-compatible HTTP API, allowing tools like OpenClaw, Hermes, Continue.dev, or any OpenAI-compatible client to use your Claude subscription instead of paying per-API-call.
 
 ## Why This Exists
 
@@ -34,7 +34,7 @@ Your App (OpenClaw, Continue.dev, etc.)
 
 ## Features
 
-- **OpenAI-compatible API** — Works with any client that supports OpenAI's API format
+- **OpenAI-compatible API** — Works with any client that supports OpenAI's API format, including agents like OpenClaw and Hermes
 - **Streaming support** — Real-time token streaming via Server-Sent Events
 - **Multiple models** — Claude Opus, Sonnet, and Haiku with flexible model aliases
 - **OpenClaw integration** — Automatic tool name mapping and system prompt adaptation
