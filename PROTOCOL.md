@@ -43,7 +43,7 @@ Sent at session start with full context:
   "session_id": "72db4887-c10b-4445-89fa-26e4fc184df9",
   "tools": ["Task", "Bash", "Read", "Edit", ...],
   "mcp_servers": [...],
-  "model": "claude-sonnet-4-5-20250929",
+  "model": "claude-sonnet-5-20250615",
   "permissionMode": "bypassPermissions",
   "slash_commands": [...],
   "skills": [...],
@@ -84,7 +84,7 @@ Contains model response:
 {
   "type": "assistant",
   "message": {
-    "model": "claude-sonnet-4-5-20250929",
+    "model": "claude-sonnet-5-20250615",
     "id": "msg_01Avr9xkb5daf79U5oDRrHQ9",
     "type": "message",
     "role": "assistant",
@@ -125,7 +125,7 @@ Final message with stats:
     "cache_read_input_tokens": 0
   },
   "modelUsage": {
-    "claude-sonnet-4-5-20250929": {
+    "claude-sonnet-5-20250615": {
       "inputTokens": 2,
       "outputTokens": 13,
       "costUSD": 0.15865725

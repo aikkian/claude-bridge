@@ -73,7 +73,7 @@ export function cliResultToOpenai(
   // Get model from modelUsage or default
   const modelName = result.modelUsage
     ? Object.keys(result.modelUsage)[0]
-    : "claude-sonnet-4";
+    : "claude-sonnet-5";
 
   const message: OpenAIChatResponse["choices"][0]["message"] = {
     role: "assistant",
@@ -107,12 +107,15 @@ export function cliResultToOpenai(
 
 /**
  * Normalize Claude model names to a consistent format
- * e.g., "claude-sonnet-4-5-20250929" -> "claude-sonnet-4"
+ * e.g., "claude-sonnet-4-5-20250929" -> "claude-sonnet-4-5", "claude-sonnet-5-20250615" -> "claude-sonnet-5"
  */
 function normalizeModelName(model: string | undefined): string {
-  if (!model) return "claude-sonnet-4";
+  if (!model) return "claude-sonnet-5";
+  if (model.includes("opus-5")) return "claude-opus-5";
   if (model.includes("opus")) return "claude-opus-4";
+  if (model.includes("sonnet-5")) return "claude-sonnet-5";
   if (model.includes("sonnet")) return "claude-sonnet-4";
+  if (model.includes("haiku-4-5") || model.includes("haiku-4.5")) return "claude-haiku-4-5";
   if (model.includes("haiku")) return "claude-haiku-4";
   return model;
 }

@@ -104,7 +104,7 @@ curl http://localhost:3456/v1/models
 curl -X POST http://localhost:3456/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "claude-sonnet-4",
+    "model": "claude-sonnet-5",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 
@@ -112,7 +112,7 @@ curl -X POST http://localhost:3456/v1/chat/completions \
 curl -N -X POST http://localhost:3456/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "claude-sonnet-4",
+    "model": "claude-sonnet-5",
     "messages": [{"role": "user", "content": "Hello!"}],
     "stream": true
   }'
@@ -130,11 +130,14 @@ curl -N -X POST http://localhost:3456/v1/chat/completions \
 
 | Model ID | Alias | CLI Model |
 |----------|-------|-----------|
+| `claude-opus-5` | `opus` | Claude Opus |
+| `claude-sonnet-5` | `sonnet` | Claude Sonnet |
+| `claude-haiku-4-5` | `haiku` | Claude Haiku |
 | `claude-opus-4` | `opus` | Claude Opus |
 | `claude-sonnet-4` | `sonnet` | Claude Sonnet |
 | `claude-haiku-4` | `haiku` | Claude Haiku |
 
-All model IDs also accept a `claude-code-cli/` prefix (e.g., `claude-code-cli/claude-opus-4`). Unknown models default to Opus.
+All model IDs also accept a `claude-code-cli/` prefix (e.g., `claude-code-cli/claude-opus-5`). Unknown models default to Opus.
 
 ## Configuration with Popular Tools
 
@@ -151,7 +154,7 @@ Add to your Continue config:
   "models": [{
     "title": "Claude",
     "provider": "openai",
-    "model": "claude-sonnet-4",
+    "model": "claude-sonnet-5",
     "apiBase": "http://localhost:3456/v1",
     "apiKey": "not-needed"
   }]
@@ -169,7 +172,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="claude-sonnet-4",
+    model="claude-sonnet-5",
     messages=[{"role": "user", "content": "Hello!"}]
 )
 ```

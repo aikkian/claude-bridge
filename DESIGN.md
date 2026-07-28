@@ -87,12 +87,12 @@ import { startServer, stopServer } from "./server/index.js";
 
 const PROVIDER_ID = "claude-code-cli";
 const DEFAULT_PORT = 3456;
-const DEFAULT_MODEL = "claude-code-cli/claude-sonnet-4";
+const DEFAULT_MODEL = "claude-code-cli/claude-sonnet-5";
 
 const AVAILABLE_MODELS = [
-  { id: "claude-opus-4", name: "Claude Opus 4.5", alias: "opus" },
-  { id: "claude-sonnet-4", name: "Claude Sonnet 4", alias: "sonnet" },
-  { id: "claude-haiku-4", name: "Claude Haiku 4", alias: "haiku" },
+  { id: "claude-opus-5", name: "Claude Opus 5", alias: "opus" },
+  { id: "claude-sonnet-5", name: "Claude Sonnet 5", alias: "sonnet" },
+  { id: "claude-haiku-4-5", name: "Claude Haiku 4.5", alias: "haiku" },
 ];
 
 const plugin = {
@@ -308,9 +308,9 @@ interface CliInput {
 export function openaiToCli(request: OpenAIChatRequest): CliInput {
   // Extract model alias from model name
   const modelMap: Record<string, "opus" | "sonnet" | "haiku"> = {
-    "claude-opus-4": "opus",
-    "claude-sonnet-4": "sonnet",
-    "claude-haiku-4": "haiku",
+    "claude-opus-5": "opus",
+    "claude-sonnet-5": "sonnet",
+    "claude-haiku-4-5": "haiku",
   };
 
   const modelId = request.model.replace("claude-code-cli/", "");
@@ -426,9 +426,9 @@ export async function startServer(port: number): Promise<Server> {
     res.json({
       object: "list",
       data: [
-        { id: "claude-opus-4", object: "model", owned_by: "anthropic" },
-        { id: "claude-sonnet-4", object: "model", owned_by: "anthropic" },
-        { id: "claude-haiku-4", object: "model", owned_by: "anthropic" },
+        { id: "claude-opus-5", object: "model", owned_by: "anthropic" },
+        { id: "claude-sonnet-5", object: "model", owned_by: "anthropic" },
+        { id: "claude-haiku-4-5", object: "model", owned_by: "anthropic" },
       ],
     });
   });

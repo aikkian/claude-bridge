@@ -35,12 +35,12 @@ node dist/server/standalone.js
 # Test non-streaming
 curl -X POST http://localhost:3456/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"model": "claude-haiku-4", "messages": [{"role": "user", "content": "Hi"}]}'
+  -d '{"model": "claude-sonnet-5", "messages": [{"role": "user", "content": "Hi"}]}'
 
 # Test streaming
 curl -N -X POST http://localhost:3456/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"model": "claude-haiku-4", "messages": [{"role": "user", "content": "Hi"}], "stream": true}'
+  -d '{"model": "claude-sonnet-5", "messages": [{"role": "user", "content": "Hi"}], "stream": true}'
 ```
 
 ## Reporting Issues

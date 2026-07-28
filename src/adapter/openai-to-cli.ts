@@ -22,6 +22,8 @@ const MODEL_MAP: Record<string, ClaudeModel> = {
   "claude-sonnet-4-6": "sonnet",
   "claude-haiku-4": "haiku",
   "claude-haiku-4-5": "haiku",
+  "claude-opus-5": "opus",
+  "claude-sonnet-5": "sonnet",
   // Bare aliases
   "opus": "opus",
   "sonnet": "sonnet",
