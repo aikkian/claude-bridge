@@ -145,6 +145,30 @@ All model IDs also accept a `claude-code-cli/` prefix (e.g., `claude-code-cli/cl
 
 OpenClaw works with this proxy out of the box. The proxy automatically maps OpenClaw tool names to Claude Code equivalents and strips conflicting tooling sections from system prompts.
 
+### Hermes Agent
+
+[Hermes Agent](https://hermes-agent.nousresearch.com) works with Claude Bridge as a custom OpenAI-compatible provider. Add to `~/.hermes/config.yaml`:
+
+```yaml
+custom_providers:
+  - name: claude-bridge
+    base_url: http://localhost:3456/v1
+    api_key: not-needed
+    api_mode: openai
+    default_model: claude-sonnet-5
+    models:
+      - claude-opus-5
+      - claude-sonnet-5
+      - claude-haiku-4-5
+      - claude-opus-4
+      - claude-sonnet-4
+      - claude-haiku-4
+```
+
+Then select the provider in Hermes via `hermes model` or set it as the default provider. Model names appear in the picker and can be switched mid-session with `/model`.
+
+⚠️ **One caveat:** the proxy exposes models via `GET /v1/models`, but Hermes only shows models from the static `models:` block in `config.yaml` — keep that list in sync with what the proxy serves (run `curl http://localhost:3456/v1/models` to check).
+
 ### Continue.dev
 
 Add to your Continue config:
