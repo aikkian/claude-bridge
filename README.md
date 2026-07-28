@@ -17,7 +17,7 @@ Anthropic blocks OAuth tokens from being used directly with third-party API clie
 ## How It Works
 
 ```
-Your App (OpenClaw, Continue.dev, etc.)
+Your App (OpenClaw, Hermes Agent, Continue.dev, etc.)
          ↓
     HTTP Request (OpenAI format)
          ↓
@@ -37,7 +37,7 @@ Your App (OpenClaw, Continue.dev, etc.)
 - **OpenAI-compatible API** — Works with any client that supports OpenAI's API format, including agents like OpenClaw and Hermes
 - **Streaming support** — Real-time token streaming via Server-Sent Events
 - **Multiple models** — Claude Opus, Sonnet, and Haiku with flexible model aliases
-- **OpenClaw integration** — Automatic tool name mapping and system prompt adaptation
+- **OpenClaw, Hermes Agent integration** — Automatic tool name mapping and system prompt adaptation
 - **Content block handling** — Proper text block separators for multi-block responses
 - **Session management** — Maintains conversation context via session IDs
 - **Auto-start service** — Optional LaunchAgent for macOS
@@ -282,6 +282,4 @@ Contributions welcome! Please submit PRs with tests.
 MIT
 
 ## Acknowledgments
-
-- Built for use with [OpenClaw](https://openclaw.com)
 - Powered by [Claude Code CLI](https://github.com/anthropics/claude-code)
